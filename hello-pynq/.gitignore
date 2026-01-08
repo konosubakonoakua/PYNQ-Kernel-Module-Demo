@@ -1,0 +1,47 @@
+# === Kernel module build artifacts ===
+*.o
+*.ko
+*.mod
+*.mod.c
+*.mod.o
+*.cmd
+*.order
+*.symvers
+
+# Per-module generated files
+Module.symvers
+modules.order
+Module.markers
+
+# Temporary versioning directory created by Kbuild
+.tmp_versions/
+
+# Kernel build logs (if any)
+*.log
+
+# === Editor / IDE ===
+*~
+*.swp
+*.swo
+*.bak
+*.tmp
+*.orig
+
+.vscode/
+.idea/
+*.iml
+
+# === OS / misc ===
+.DS_Store
+Thumbs.db
+
+# === Python virtual env (if you happen to have one here) ===
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# === Build directories (if you use any) ===
+build/
+out/
+
