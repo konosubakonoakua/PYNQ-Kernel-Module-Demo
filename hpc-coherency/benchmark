@@ -1,0 +1,152 @@
+#!/usr/local/share/pynq-venv/bin/python3
+
+# benchmark - Final Research Version with Sync I/O Support
+
+import numpy as np
+import mmap, os, time, argparse, sys, csv
+from pynq import Overlay, DefaultIP
+from pynq.overlays.base import BaseOverlay
+from simple_dma import SimpleDMADriver
+
+# --- CLI Logger ---
+def log(tag, msg, color="0"):
+    ts = time.strftime("%H:%M:%S")
+    print(f"[{ts}] [\033[{color}m{tag}\033[0m] {msg}")
+
+def log_info(msg):    log("INFO", msg, "94")
+def log_success(msg): log("SUCCESS", msg, "92")
+def log_error(msg):   log("ERROR", msg, "91")
+
+def get_udmabuf_attr(node, attr):
+    path = f"/sys/class/u-dma-buf/{node}/{attr}"
+    return open(path).read().strip() if os.path.exists(path) else None
+
+class BenchmarkTool:
+    def __init__(self, args):
+        self.args = args
+
+    def print_header(self, title):
+        print("\n" + "="*80 + f"\n{title:^80}\n" + "="*80)
+
+    def run_status(self):
+        self.print_header("IMPCAS ZU15 DMA STATUS DIAGNOSTICS")
+        p = get_udmabuf_attr(self.args.node, "phys_addr")
+        s = get_udmabuf_attr(self.args.node, "size")
+        if p:
+            log_success(f"udmabuf Phys Address : {p}")
+            log_success(f"udmabuf Total Size   : {int(s)/(1024**2):.2f} MiB")
+
+        use_base = self.args.base or (self.args.bit == "base.bit")
+        OverlayClass = BaseOverlay if use_base else Overlay
+
+        if os.path.exists(self.args.bit):
+            try:
+                ol = OverlayClass(self.args.bit, download=False)
+                log_success(f"Overlay Class : {OverlayClass.__name__}")
+                log_success(f"DMA Logic Found : {self.args.dma in ol.ip_dict}")
+            except Exception as e: log_error(f"Metadata fail: {e}")
+        print("="*80 + "\n")
+
+    def execute(self):
+        # 1. Hardware Resource Check
+        p_str = get_udmabuf_attr(self.args.node, "phys_addr")
+        s_str = get_udmabuf_attr(self.args.node, "size")
+        if not p_str:
+            log_error(f"Kernel node {self.args.node} not found!"); return
+        
+        phys_base, total_size = int(p_str, 16), int(s_str)
+        test_bytes = (self.args.size * 1024 * 1024) if self.args.size else (total_size // 2)
+
+        # 2. Dynamic Overlay Selection
+        use_base = self.args.base or (self.args.bit == "base.bit")
+        OverlayClass = BaseOverlay if use_base else Overlay
+        log_info(f"Loading {OverlayClass.__name__}: {self.args.bit}...")
+        ol = OverlayClass(self.args.bit, download=self.args.download)
+
+        # Bypass PYNQ driver initialization
+        dma_ip = DefaultIP(ol.ip_dict[self.args.dma])
+        tx_eng = SimpleDMADriver(dma_ip, 'tx', max_chunk_mib=self.args.chunk)
+        rx_eng = SimpleDMADriver(dma_ip, 'rx', max_chunk_mib=self.args.chunk)
+        log_success(f"Hardware Linked: {self.args.dma}")
+
+        # 3. Buffer Setup with Optional O_SYNC
+        open_flags = os.O_RDWR
+        if self.args.sync:
+            open_flags |= os.O_SYNC
+            log_info("Synchronous I/O (O_SYNC) enabled for memory mapping.")
+        
+        fd = os.open(f"/dev/{self.args.node}", open_flags)
+        mm = mmap.mmap(fd, total_size)
+        
+        tx_buf = np.frombuffer(mm, dtype=np.uint64, count=test_bytes//8, offset=0)
+        rx_buf = np.frombuffer(mm, dtype=np.uint64, count=test_bytes//8, offset=total_size//2)
+        tx_phys, rx_phys = phys_base, phys_base + (total_size // 2)
+
+        self.print_header("IMPCAS ZU15 DMA PERFORMANCE BENCHMARK")
+        log_info(f"Transfer: {test_bytes/(1024**2):.1f} MiB | Chunk: {self.args.chunk} MiB")
+        
+        results = []
+        for i in range(self.args.iters):
+            tx_eng.reset(); rx_eng.reset()
+            pattern = np.random.randint(0, 0xFFFFFFFFFFFFFFFF, dtype=np.uint64)
+            tx_buf[:] = pattern
+            rx_buf[:] = 0xDEADBEEFCAFEF00D
+            
+            remaining = test_bytes
+            curr_tx, curr_rx = tx_phys, rx_phys
+            error = False
+            
+            t1 = time.perf_counter()
+            while remaining > 0:
+                sz = min(remaining, tx_eng.max_chunk)
+                rx_eng.trigger_raw(curr_rx, sz)
+                tx_eng.trigger_raw(curr_tx, sz)
+                
+                r_ok, r_s = rx_eng.wait_for_completion()
+                t_ok, t_s = tx_eng.wait_for_completion()
+                if not r_ok or not t_ok:
+                    log_error(f"Abort! RX: {r_s} TX: {t_s}")
+                    error = True; break
+                
+                remaining -= sz
+                curr_tx += sz; curr_rx += sz
+            
+            t2 = time.perf_counter()
+            if error: continue
+
+            speed = (test_bytes / 1024**2) / (t2 - t1)
+            # Memory data verification
+            match = np.array_equal(tx_buf, rx_buf) if self.args.verify else "N/A"
+            log_success(f"Run {i+1}: {speed:8.2f} MiB/s | Match: {match}")
+            results.append([i+1, speed, match])
+
+        if self.args.csv:
+            with open(self.args.csv, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(["Iter", "Speed_MiB_s", "Match"])
+                writer.writerows(results)
+
+        mm.close(); os.close(fd)
+
+def main():
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("--status", action="store_true", help="Diagnostic status report")
+    parser.add_argument("-b", "--bit", default="base.bit", help="Bitstream path")
+    parser.add_argument("-s", "--size", type=int, help="Transfer size in MiB")
+    parser.add_argument("-i", "--iters", type=int, default=1, help="Iterations")
+    parser.add_argument("--chunk", type=int, default=4, help="Max chunk size in MiB")
+    parser.add_argument("-d", "--dma", default="axi_dma_0", help="DMA Name")
+    parser.add_argument("-n", "--node", default="udmabuf0", help="udmabuf device")
+    parser.add_argument("--base", action="store_true", help="Use BaseOverlay class")
+    parser.add_argument("--download", action="store_true", help="Download bitstream")
+    parser.add_argument("--verify", action="store_true", help="Verify data integrity")
+    parser.add_argument("--sync", action="store_true", help="Enable O_SYNC for device mapping")
+    parser.add_argument("--csv", type=str, help="Save output to CSV")
+
+    args = parser.parse_args()
+    tool = BenchmarkTool(args)
+    if args.status: tool.run_status()
+    else: tool.execute()
+
+if __name__ == "__main__":
+    main()

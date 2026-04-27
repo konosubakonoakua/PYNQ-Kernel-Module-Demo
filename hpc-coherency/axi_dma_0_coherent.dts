@@ -1,0 +1,13 @@
+/dts-v1/;
+/plugin/;
+
+&{/axi} {
+    axi_dma_coherent: coherency_stub@a0020000 {
+        compatible = "generic-uio"; 
+        reg = <0x0 0xa0020000 0x10000>;
+        
+        dma-coherent; 
+        
+        status = "okay";
+    };
+};
