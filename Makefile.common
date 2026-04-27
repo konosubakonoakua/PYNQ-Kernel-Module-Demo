@@ -1,0 +1,46 @@
+# Makefile.common - Shared build environment checks for kernel modules
+
+UNAME_R := $(shell uname -r)
+KDIR ?= /lib/modules/$(UNAME_R)/build
+PWD  := $(shell pwd)
+
+UTS_FILE := $(KDIR)/include/generated/utsrelease.h
+AUTOCONF_FILE := $(KDIR)/include/generated/autoconf.h
+
+ARCH ?= arm64
+CROSS_COMPILE ?= 
+
+CURRENT_UTS := $(shell grep UTS_RELEASE $(UTS_FILE) 2>/dev/null | cut -d '"' -f2)
+
+.PHONY: check_env fix_uts
+
+check_env:
+	@if [ ! -f "$(AUTOCONF_FILE)" ] || [ ! -f "$(UTS_FILE)" ]; then \
+		echo "================================================================"; \
+		echo "[ERROR] Kernel headers missing (autoconf.h or utsrelease.h)!"; \
+		echo "        The kernel tree at $(KDIR) is not fully prepared."; \
+		echo "        This will cause 'missing header' errors during build."; \
+		echo "----------------------------------------------------------------"; \
+		echo "[FIX]   Please prepare the kernel tree by running:"; \
+		echo "        cd $(KDIR)"; \
+		echo "        sudo make ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) modules_prepare"; \
+		echo "================================================================"; \
+		exit 1; \
+	elif [ "$(CURRENT_UTS)" != "$(UNAME_R)" ]; then \
+		echo "================================================================"; \
+		echo "[ERROR] Kernel release string mismatch!"; \
+		echo "        Tree config: $(CURRENT_UTS)"; \
+		echo "        Running OS : $(UNAME_R)"; \
+		echo "----------------------------------------------------------------"; \
+		echo "[FIX]   To force UTS_RELEASE to match the running OS, run:"; \
+		echo "        make fix_uts"; \
+		echo "================================================================"; \
+		exit 1; \
+	else \
+		echo "[OK] Kernel tree is ready and UTS_RELEASE matches ($(UNAME_R))."; \
+	fi
+
+fix_uts:
+	@echo "[FIX] Forcing UTS_RELEASE to \"$(UNAME_R)\" in $(UTS_FILE)..."
+	@sudo sh -c 'echo "#define UTS_RELEASE \"$(UNAME_R)\"" > "$(UTS_FILE)"'
+	@echo "[FIX] Done. You can now run 'make' again."

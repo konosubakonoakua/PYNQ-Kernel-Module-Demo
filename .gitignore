@@ -1,0 +1,101 @@
+# ==============================================================================
+# C & Linux Kernel Module Build Artifacts
+# ==============================================================================
+# Object files and compiled modules
+*.o
+*.ko
+*.obj
+*.elf
+*.a
+*.so
+
+# Kernel module specific build files
+*.mod
+*.mod.c
+*.mod.o
+modules.order
+Module.symvers
+*.symvers
+*.order
+
+# Kernel build hidden files and temp directories
+.*.cmd
+.*.flags
+.*.o.d
+.tmp_versions/
+
+# Compiled user-space executables (Without extension in Linux)
+# Add specific executable names here to avoid accidentally committing them
+dma-proxy-test
+hello_pynq_test
+*.out
+
+
+# ==============================================================================
+# Python
+# ==============================================================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.smd
+.pytest_cache/
+
+# Virtual Environments (Tailored for typical PYNQ setups)
+venv/
+env/
+.venv/
+pynq-venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+
+# ==============================================================================
+# IDE / OS / Editor specific
+# ==============================================================================
+# VS Code
+.vscode/
+
+# Vim / Emacs / Nano
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
